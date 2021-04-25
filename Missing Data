@@ -1,0 +1,136 @@
+---
+title: "Missing Data Assignment - Marvin"
+author: "Marvin Williams"
+date: "12/11/2020"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r,  include = F}
+rm(list =ls())
+gc()
+directory <- "/Users/marvinwilliams/Documents/Authorized Personnel Only/Grad School/DATA 712 Advanced Analytics/Week 11 - 11:11"
+set.seed(914)
+library("AER")
+library("Formula")
+library("sandwich")
+library("geepack")
+library("MatchIt")
+library("MCMCpack")
+library("survey")
+library("VGAM")
+library("Zelig")
+library("tidyverse")
+library("ggplot2")
+library("kableExtra")
+library("expss")
+library("Amelia")
+library("ggplot2")
+library("descr")
+library("weights")
+```
+
+
+```{r, include = T}
+data <- read.csv("MissingDataAssignment.csv")
+str(data)
+
+```
+
+### The first model is a linear regression which predicts income according to the respondent's group and whether or not the respondent graduated college. Our 2 predictor variables blues and college were both statistically significant predictors. With a coefficient of  10767, this tells us that for every unit increase, those with membership in the blue group is positively associated with a $10,767 increase in income. We also see a positive association with the college, with a coefficient of 8203.6. This tells us that those who attended college see an $8,203 increase in income for every unit increase. 
+
+```{r, include = T}
+model1<- glm(income ~ blues + college, data, family = "gaussian")
+summary(model1)
+```
+### Specifying the variables types
+```{r, include = T}
+summary(data)
+id.vars <- c("X")
+nom.vars <- names(data)[c(2,3)]
+hist(data$income)
+```
+### A histogram of the income variable shows an income distribution that is relatively similar to that of the actual income distribution. Logging wouldn't be necessary as this right-skew is expected. 
+
+```{r}
+data=apply_labels(data, 
+                  college= "Respondent a college Graduate?",
+                  blues= "Is in Blue group?",
+                  income= "Annual Household Income")
+str(data)
+```
+
+### Creating labels for College variable
+```{r}
+College = c(0,1)
+var_lab(College)= "Is respondent a college Graduate?"
+val_lab(College)= num_lab("
+                          1 College Graduate
+                          0 Not a College Graduate
+                          ")
+```
+
+```{r}
+set.seed(914)
+data.imp <-amelia(data,
+                 m=5,
+                 idvars = id.vars,
+                 noms = nom.vars,
+                 empr = 0,
+                 emburn = c(25,100)
+                 )
+```
+
+#NA's are removed from college and blues variables after using summary to check.  
+
+```{r}
+summary(data.imp$imputations$imp1)
+compare.density(data.imp, var="income")
+#Continuous Variable
+```
+## Diagnosing Impuations
+### There doesn't show any mean imputations, with no missing data.
+
+```{r}
+overimpute(data.imp, var = "income")
+#Continuous Variable
+```
+
+### The over imputation diagnostic chart shows us that the confidence intervals for the observed data, for the most part, fall within the y = x line. Although more accurate for at the lower-middle of they = x line, as the values get higher, we see accuracy begins to decrease as the y = x line no longer begins to fall within the confidence intervals. 
+
+```{r}
+disperse(data.imp, dims=2, m=5)
+```
+### After running an Expectation–maximization algorithm, we have evidence that even with different starting values, each of the imputations arrives at the same path of predictions.
+
+```{r}
+all.imp.data<- rbind(data.imp$imputations$imp1, data.imp$imputations$imp2, data.imp$imputations$imp3, data.imp$imputations$imp4, data.imp$imputations$imp5)
+
+#histogram
+hist(all.imp.data$income)
+```
+
+### The imputed data histogram shows an increase in the frequency of all the income groups, although specifically higher for those in the $0-$20,000 income bracket.  
+
+```{r}
+crosstab(all.imp.data$blues, all.imp.data$college, all.imp.data$income, prop.c = T, prop.r = T, plot = F, echo=F) 
+
+aggregate(all.imp.data$income ~ (all.imp.data$college + all.imp.data$blues), data=all.imp.data, na.rm=T, mean)
+```
+
+```{r}
+wtd.cor(all.imp.data$income, as.numeric(as.character(all.imp.data$college)))
+
+wtd.cor(all.imp.data$income, as.numeric(as.character(all.imp.data$blues)))
+
+wtd.cor(all.imp.data$income, as.numeric(as.character(all.imp.data$blues + all.imp.data$college)))
+```
+
+```{r}
+model2 <- zelig(income~college + blues, model="normal", data=data.imp)
+summary(model2)
+```
+
+### The results from the 2nd model show that both memberships in the blue group, and being a college graduate have a statistically significant effect on respondent income. With a coefficient of 7471, we see a $7,471 increase for those who are college graduates, per unit increase of income. With a coefficient of 10560, we see that membership in the blue group is associated with a $10,560 increase in income per every unit increase. We see a lower income increase for those in the blue group for imputed data, specifically a $207 decrease, and for college graduates, the income for the imputed data decreased by $732. 
